@@ -407,6 +407,18 @@ const (
 	// without triggering an unexpected update of KubeVirt VMs.
 	NodePoolSupportsKubevirtTopologySpreadConstraintsAnnotation = "hypershift.openshift.io/nodepool-supports-kubevirt-topology-spread-constraints"
 
+	// NodePoolSupportsKubevirtArchitectureAnnotation indicates that it is safe to set the VMI
+	// Architecture field and inject the kubernetes.io/arch NodeSelector on KubeVirt VMs in
+	// this NodePool without triggering an unexpected fleet-wide rolling update.
+	//
+	// Because nodePool.Spec.Arch has +kubebuilder:default:=amd64, every existing NodePool
+	// already carries Arch="amd64". Setting Architecture="amd64" on the VMI spec changes the
+	// JSON-serialised KubevirtMachineTemplateSpec, which changes the hash-derived template name
+	// and causes CAPI to replace all VMs — identical in impact to the TopologySpreadConstraints
+	// migration. The annotation is only set for new NodePools or NodePools already undergoing a
+	// version update, so idle existing NodePools are never unexpectedly disrupted.
+	NodePoolSupportsKubevirtArchitectureAnnotation = "hypershift.openshift.io/nodepool-supports-kubevirt-architecture"
+
 	// IsKubeVirtRHCOSVolumeLabelName labels rhcos DataVolumes and PVCs, to be able to filter them, e.g. for backup
 	IsKubeVirtRHCOSVolumeLabelName = "hypershift.openshift.io/is-kubevirt-rhcos"
 
@@ -1517,29 +1529,20 @@ type ProvisionerConfig struct {
 // including the target platform and platform-specific settings.
 //
 // +kubebuilder:validation:XValidation:rule="self.platform == 'AWS' ? has(self.aws) : !has(self.aws)",message="aws is required when platform is AWS, and forbidden otherwise"
-// +kubebuilder:validation:XValidation:rule="self.platform == 'Azure' ? has(self.azure) : !has(self.azure)",message="azure is required when platform is Azure, and forbidden otherwise"
 // +union
 type KarpenterConfig struct {
 	// platform specifies the infrastructure platform that Karpenter should provision nodes on.
 	//
 	// +required
 	// +unionDiscriminator
-	// +kubebuilder:validation:Enum=AWS;Azure
+	// +kubebuilder:validation:Enum=AWS
 	Platform PlatformType `json:"platform,omitempty"`
 
 	// aws specifies the AWS-specific configuration for Karpenter.
-	// Required when platform is "AWS", and forbidden otherwise.
 	//
 	// +optional
 	// +unionMember
 	AWS KarpenterAWSConfig `json:"aws,omitzero"`
-
-	// azure specifies the Azure-specific configuration for Karpenter.
-	// Required when platform is "Azure", and forbidden otherwise.
-	//
-	// +optional
-	// +unionMember
-	Azure KarpenterAzureConfig `json:"azure,omitzero"`
 }
 
 // KarpenterAWSConfig specifies AWS-specific configuration for the Karpenter provisioner.
@@ -1783,23 +1786,6 @@ type KarpenterAWSConfig struct {
 	// +kubebuilder:validation:XValidation:rule="self.matches('^arn:(aws|aws-cn|aws-us-gov):iam::[0-9]{12}:role/.+$')",message="roleARN must be a valid AWS IAM role ARN (e.g. arn:aws:iam::123456789012:role/MyRole)"
 	// +kubebuilder:validation:MaxLength=2048
 	RoleARN string `json:"roleARN,omitempty"`
-}
-
-// KarpenterAzureConfig specifies Azure-specific configuration for the Karpenter provisioner.
-type KarpenterAzureConfig struct {
-	// clientID is the client ID of the user-assigned managed identity Karpenter uses
-	// to provision and manage Azure VMs in the hosted cluster's subscription.
-	//
-	// The identity must have a federated credential that trusts the hosted cluster
-	// OIDC issuer for subject system:serviceaccount:kube-system:karpenter.
-	//
-	// The identity must be granted Virtual Machine Contributor, Network Contributor,
-	// and Managed Identity Operator on the cluster resource group (and Network Contributor
-	// on the VNet resource group when it differs).
-	//
-	// The client ID must be a valid UUID. It should be 5 groups of hyphen separated hexadecimal characters in the form 8-4-4-4-12.
-	// +required
-	ClientID AzureClientID `json:"clientID,omitempty"`
 }
 
 const (

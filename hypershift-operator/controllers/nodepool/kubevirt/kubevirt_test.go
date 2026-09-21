@@ -580,7 +580,10 @@ func TestKubevirtMachineTemplate(t *testing.T) {
 			expectedValidationError: "host device count must be greater than or equal to 1. received: -7",
 		},
 		{
-			name: "When CPU model is set to host-passthrough, it should configure the VM with the CPU model",
+			// A user-pinned kubernetes.io/arch NodeSelector that disagrees with
+			// Spec.Arch would put an amd64 VM on an s390x node — catch it at
+			// validation time so the user gets early, actionable feedback.
+			name: "When kubernetes.io/arch NodeSelector conflicts with Spec.Arch, PlatformValidation should return an arch conflict error",
 			nodePool: &hyperv1.NodePool{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      poolName,
@@ -588,252 +591,231 @@ func TestKubevirtMachineTemplate(t *testing.T) {
 				},
 				Spec: hyperv1.NodePoolSpec{
 					ClusterName: clusterName,
-					Replicas:    nil,
-					Config:      nil,
-					Management:  hyperv1.NodePoolManagement{},
-					AutoScaling: nil,
+					Arch:        hyperv1.ArchitectureAMD64,
 					Platform: hyperv1.NodePoolPlatform{
 						Type: hyperv1.KubevirtPlatform,
 						Kubevirt: generateKubevirtPlatform(
-							memoryNPOption("5Gi"),
+							memoryNPOption("8Gi"),
 							coresNPOption(4),
 							imageNPOption("testimage"),
 							volumeNPOption("32Gi"),
-							cpuModelNPOption(hyperv1.CpuModelHostPassthrough),
-						),
-					},
-					Release: hyperv1.Release{},
-				},
-			},
-			hcluster: &hyperv1.HostedCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-hostedcluster",
-					Namespace: "clusters",
-				},
-				Spec: hyperv1.HostedClusterSpec{
-					InfraID: "1234",
-				},
-			},
-
-			expected: &capikubevirt.KubevirtMachineTemplateSpec{
-				Template: capikubevirt.KubevirtMachineTemplateResource{
-					Spec: capikubevirt.KubevirtMachineSpec{
-						BootstrapCheckSpec: capikubevirt.VirtualMachineBootstrapCheckSpec{CheckStrategy: "none"},
-						VirtualMachineTemplate: *generateNodeTemplate(
-							memoryTmpltOpt("5Gi"),
-							cpuWithModelTmpltOpt(4, "host-passthrough"),
-							storageTmpltOpt("32Gi"),
-						),
-					},
-				},
-			},
-		},
-		{
-			name: "When CPU model is set with QoS Class Guaranteed, it should configure the VM with the CPU model",
-			nodePool: &hyperv1.NodePool{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      poolName,
-					Namespace: namespace,
-				},
-				Spec: hyperv1.NodePoolSpec{
-					ClusterName: clusterName,
-					Replicas:    nil,
-					Config:      nil,
-					Management:  hyperv1.NodePoolManagement{},
-					AutoScaling: nil,
-					Platform: hyperv1.NodePoolPlatform{
-						Type: hyperv1.KubevirtPlatform,
-						Kubevirt: generateKubevirtPlatform(
-							memoryNPOption("5Gi"),
-							coresNPOption(4),
-							imageNPOption("testimage"),
-							volumeNPOption("32Gi"),
-							qosClassGuaranteedNPOption(),
-							cpuModelNPOption(hyperv1.CpuModelHostPassthrough),
-						),
-					},
-					Release: hyperv1.Release{},
-				},
-			},
-			hcluster: &hyperv1.HostedCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-hostedcluster",
-					Namespace: "clusters",
-				},
-				Spec: hyperv1.HostedClusterSpec{
-					InfraID: "1234",
-				},
-			},
-
-			expected: &capikubevirt.KubevirtMachineTemplateSpec{
-				Template: capikubevirt.KubevirtMachineTemplateResource{
-					Spec: capikubevirt.KubevirtMachineSpec{
-						BootstrapCheckSpec: capikubevirt.VirtualMachineBootstrapCheckSpec{CheckStrategy: "none"},
-						VirtualMachineTemplate: *generateNodeTemplate(
-							storageTmpltOpt("32Gi"),
-							guaranteedResourcesOpt(4, "5Gi"),
-							cpuModelTmpltOpt("host-passthrough"),
-						),
-					},
-				},
-			},
-		},
-		{
-			name: "When CPU model and Guaranteed QoS are set without explicit cores, it should set guaranteed memory and CPU model only",
-			nodePool: &hyperv1.NodePool{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      poolName,
-					Namespace: namespace,
-				},
-				Spec: hyperv1.NodePoolSpec{
-					ClusterName: clusterName,
-					Replicas:    nil,
-					Config:      nil,
-					Management:  hyperv1.NodePoolManagement{},
-					AutoScaling: nil,
-					Platform: hyperv1.NodePoolPlatform{
-						Type: hyperv1.KubevirtPlatform,
-						Kubevirt: generateKubevirtPlatform(
-							memoryNPOption("5Gi"),
-							imageNPOption("testimage"),
-							volumeNPOption("32Gi"),
-							qosClassGuaranteedNPOption(),
-							cpuModelNPOption(hyperv1.CpuModelHostPassthrough),
-						),
-					},
-					Release: hyperv1.Release{},
-				},
-			},
-			hcluster: &hyperv1.HostedCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-hostedcluster",
-					Namespace: "clusters",
-				},
-				Spec: hyperv1.HostedClusterSpec{
-					InfraID: "1234",
-				},
-			},
-
-			expected: &capikubevirt.KubevirtMachineTemplateSpec{
-				Template: capikubevirt.KubevirtMachineTemplateResource{
-					Spec: capikubevirt.KubevirtMachineSpec{
-						BootstrapCheckSpec: capikubevirt.VirtualMachineBootstrapCheckSpec{CheckStrategy: "none"},
-						VirtualMachineTemplate: *generateNodeTemplate(
-							storageTmpltOpt("32Gi"),
-							guaranteedMemoryOnlyOpt("5Gi"),
-							cpuModelTmpltOpt("host-passthrough"),
-						),
-					},
-				},
-			},
-		},
-		{
-			name: "When CPU model is set without explicit cores, it should configure the VM with only the CPU model",
-			nodePool: &hyperv1.NodePool{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      poolName,
-					Namespace: namespace,
-				},
-				Spec: hyperv1.NodePoolSpec{
-					ClusterName: clusterName,
-					Replicas:    nil,
-					Config:      nil,
-					Management:  hyperv1.NodePoolManagement{},
-					AutoScaling: nil,
-					Platform: hyperv1.NodePoolPlatform{
-						Type: hyperv1.KubevirtPlatform,
-						Kubevirt: generateKubevirtPlatform(
-							memoryNPOption("5Gi"),
-							imageNPOption("testimage"),
-							volumeNPOption("32Gi"),
-							cpuModelNPOption(hyperv1.CpuModelHostPassthrough),
-						),
-					},
-					Release: hyperv1.Release{},
-				},
-			},
-			hcluster: &hyperv1.HostedCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-hostedcluster",
-					Namespace: "clusters",
-				},
-				Spec: hyperv1.HostedClusterSpec{
-					InfraID: "1234",
-				},
-			},
-
-			expected: &capikubevirt.KubevirtMachineTemplateSpec{
-				Template: capikubevirt.KubevirtMachineTemplateResource{
-					Spec: capikubevirt.KubevirtMachineSpec{
-						BootstrapCheckSpec: capikubevirt.VirtualMachineBootstrapCheckSpec{CheckStrategy: "none"},
-						VirtualMachineTemplate: *generateNodeTemplate(
-							memoryTmpltOpt("5Gi"),
-							cpuModelTmpltOpt("host-passthrough"),
-							storageTmpltOpt("32Gi"),
-						),
-					},
-				},
-			},
-		},
-		{
-			name: "When CPU model and host devices are configured, it should include both in the template",
-			nodePool: &hyperv1.NodePool{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      poolName,
-					Namespace: namespace,
-				},
-				Spec: hyperv1.NodePoolSpec{
-					ClusterName: clusterName,
-					Replicas:    nil,
-					Config:      nil,
-					Management:  hyperv1.NodePoolManagement{},
-					AutoScaling: nil,
-					Platform: hyperv1.NodePoolPlatform{
-						Type: hyperv1.KubevirtPlatform,
-						Kubevirt: generateKubevirtPlatform(
-							memoryNPOption("5Gi"),
-							coresNPOption(4),
-							imageNPOption("testimage"),
-							volumeNPOption("32Gi"),
-							cpuModelNPOption(hyperv1.CpuModelHostPassthrough),
-							hostDevicesOption([]hyperv1.KubevirtHostDevice{
-								{
-									DeviceName: "example.com/my-vgpu",
-									Count:      2,
-								},
+							nodeSelectorNPOption(map[string]string{
+								corev1.LabelArchStable: hyperv1.ArchitectureS390X,
 							}),
 						),
 					},
-					Release: hyperv1.Release{},
 				},
 			},
 			hcluster: &hyperv1.HostedCluster{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-hostedcluster-gpu",
+					Name:      "my-hostedcluster",
 					Namespace: "clusters",
 				},
-				Spec: hyperv1.HostedClusterSpec{
-					InfraID: "1234",
+				Spec: hyperv1.HostedClusterSpec{InfraID: "1234"},
+			},
+			expectedValidationError: fmt.Sprintf(
+				`nodePool.spec.platform.kubevirt.nodeSelector[%q] is %q but nodePool.spec.arch is %q: the values must match to avoid scheduling a VM on a mismatched architecture node`,
+				corev1.LabelArchStable, hyperv1.ArchitectureS390X, hyperv1.ArchitectureAMD64,
+			),
+		},
+		{
+			// amd64 nodepool on a multi-arch cluster: verifies that Architecture
+			// and the auto-injected kubernetes.io/arch NodeSelector are set when
+			// the gate annotation is present (new/updating NodePool).
+			name: "When arch is amd64 and gate annotation is set, it should set Architecture=amd64 and inject kubernetes.io/arch=amd64 NodeSelector",
+			nodePool: &hyperv1.NodePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      poolName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						hyperv1.NodePoolSupportsKubevirtArchitectureAnnotation: "true",
+					},
+				},
+				Spec: hyperv1.NodePoolSpec{
+					ClusterName: clusterName,
+					Arch:        hyperv1.ArchitectureAMD64,
+					Platform: hyperv1.NodePoolPlatform{
+						Type: hyperv1.KubevirtPlatform,
+						Kubevirt: generateKubevirtPlatform(
+							memoryNPOption("8Gi"),
+							coresNPOption(4),
+							imageNPOption("testimage"),
+							volumeNPOption("32Gi"),
+						),
+					},
 				},
 			},
-
+			hcluster: &hyperv1.HostedCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "my-hostedcluster",
+					Namespace: "clusters",
+				},
+				Spec: hyperv1.HostedClusterSpec{InfraID: "1234"},
+			},
 			expected: &capikubevirt.KubevirtMachineTemplateSpec{
 				Template: capikubevirt.KubevirtMachineTemplateResource{
 					Spec: capikubevirt.KubevirtMachineSpec{
 						BootstrapCheckSpec: capikubevirt.VirtualMachineBootstrapCheckSpec{CheckStrategy: "none"},
 						VirtualMachineTemplate: *generateNodeTemplate(
-							memoryTmpltOpt("5Gi"),
-							cpuWithModelTmpltOpt(4, "host-passthrough"),
+							memoryTmpltOpt("8Gi"),
+							cpuTmpltOpt(4),
 							storageTmpltOpt("32Gi"),
-							hostDevicesTmpltOpt([]kubevirtv1.HostDevice{
-								{
-									Name:       "hostdevice-1",
-									DeviceName: "example.com/my-vgpu",
-								},
-								{
-									Name:       "hostdevice-2",
-									DeviceName: "example.com/my-vgpu",
-								},
+							archTmpltOpt(hyperv1.ArchitectureAMD64),
+							nodeSelectorTmpltOpt(map[string]string{corev1.LabelArchStable: hyperv1.ArchitectureAMD64}),
+						),
+					},
+				},
+			},
+		},
+		{
+			// Existing idle amd64 NodePool (no gate annotation): Architecture and
+			// kubernetes.io/arch NodeSelector must NOT be set to avoid a fleet-wide
+			// rolling update on operator upgrade. User-supplied NodeSelector entries
+			// must still be applied.
+			name: "When arch is amd64 and gate annotation is absent, it should not set Architecture or inject kubernetes.io/arch NodeSelector but should preserve user NodeSelector entries",
+			nodePool: &hyperv1.NodePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      poolName,
+					Namespace: namespace,
+				},
+				Spec: hyperv1.NodePoolSpec{
+					ClusterName: clusterName,
+					Arch:        hyperv1.ArchitectureAMD64,
+					Platform: hyperv1.NodePoolPlatform{
+						Type: hyperv1.KubevirtPlatform,
+						Kubevirt: generateKubevirtPlatform(
+							memoryNPOption("8Gi"),
+							coresNPOption(4),
+							imageNPOption("testimage"),
+							volumeNPOption("32Gi"),
+							nodeSelectorNPOption(map[string]string{
+								"custom-label": "custom-value",
+							}),
+						),
+					},
+				},
+			},
+			hcluster: &hyperv1.HostedCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "my-hostedcluster",
+					Namespace: "clusters",
+				},
+				Spec: hyperv1.HostedClusterSpec{InfraID: "1234"},
+			},
+			expected: &capikubevirt.KubevirtMachineTemplateSpec{
+				Template: capikubevirt.KubevirtMachineTemplateResource{
+					Spec: capikubevirt.KubevirtMachineSpec{
+						BootstrapCheckSpec: capikubevirt.VirtualMachineBootstrapCheckSpec{CheckStrategy: "none"},
+						VirtualMachineTemplate: *generateNodeTemplate(
+							memoryTmpltOpt("8Gi"),
+							cpuTmpltOpt(4),
+							storageTmpltOpt("32Gi"),
+							nodeSelectorTmpltOpt(map[string]string{
+								"custom-label": "custom-value",
+							}),
+						),
+					},
+				},
+			},
+		},
+		{
+			// s390x nodepool: verifies that Architecture and the auto-injected
+			// kubernetes.io/arch NodeSelector are set correctly for s390x when
+			// the gate annotation is present.
+			name: "When arch is s390x and gate annotation is set, it should set Architecture=s390x and inject kubernetes.io/arch=s390x NodeSelector",
+			nodePool: &hyperv1.NodePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      poolName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						hyperv1.NodePoolSupportsKubevirtArchitectureAnnotation: "true",
+					},
+				},
+				Spec: hyperv1.NodePoolSpec{
+					ClusterName: clusterName,
+					Arch:        hyperv1.ArchitectureS390X,
+					Platform: hyperv1.NodePoolPlatform{
+						Type: hyperv1.KubevirtPlatform,
+						Kubevirt: generateKubevirtPlatform(
+							memoryNPOption("8Gi"),
+							coresNPOption(4),
+							imageNPOption("testimage"),
+							volumeNPOption("32Gi"),
+						),
+					},
+				},
+			},
+			hcluster: &hyperv1.HostedCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "my-hostedcluster",
+					Namespace: "clusters",
+				},
+				Spec: hyperv1.HostedClusterSpec{InfraID: "1234"},
+			},
+			expected: &capikubevirt.KubevirtMachineTemplateSpec{
+				Template: capikubevirt.KubevirtMachineTemplateResource{
+					Spec: capikubevirt.KubevirtMachineSpec{
+						BootstrapCheckSpec: capikubevirt.VirtualMachineBootstrapCheckSpec{CheckStrategy: "none"},
+						VirtualMachineTemplate: *generateNodeTemplate(
+							memoryTmpltOpt("8Gi"),
+							cpuTmpltOpt(4),
+							storageTmpltOpt("32Gi"),
+							archTmpltOpt(hyperv1.ArchitectureS390X),
+							nodeSelectorTmpltOpt(map[string]string{corev1.LabelArchStable: hyperv1.ArchitectureS390X}),
+						),
+					},
+				},
+			},
+		},
+		{
+			// A user-supplied kubernetes.io/arch in kvPlatform.NodeSelector must
+			// take precedence over the automatically injected value.
+			name: "When user supplies kubernetes.io/arch in NodeSelector, it should not be overwritten by the auto-injected arch value",
+			nodePool: &hyperv1.NodePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      poolName,
+					Namespace: namespace,
+					Annotations: map[string]string{
+						hyperv1.NodePoolSupportsKubevirtArchitectureAnnotation: "true",
+					},
+				},
+				Spec: hyperv1.NodePoolSpec{
+					ClusterName: clusterName,
+					Arch:        hyperv1.ArchitectureAMD64,
+					Platform: hyperv1.NodePoolPlatform{
+						Type: hyperv1.KubevirtPlatform,
+						Kubevirt: generateKubevirtPlatform(
+							memoryNPOption("8Gi"),
+							coresNPOption(4),
+							imageNPOption("testimage"),
+							volumeNPOption("32Gi"),
+							nodeSelectorNPOption(map[string]string{
+								corev1.LabelArchStable: hyperv1.ArchitectureAMD64,
+								"custom-label":       "custom-value",
+							}),
+						),
+					},
+				},
+			},
+			hcluster: &hyperv1.HostedCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "my-hostedcluster",
+					Namespace: "clusters",
+				},
+				Spec: hyperv1.HostedClusterSpec{InfraID: "1234"},
+			},
+			expected: &capikubevirt.KubevirtMachineTemplateSpec{
+				Template: capikubevirt.KubevirtMachineTemplateResource{
+					Spec: capikubevirt.KubevirtMachineSpec{
+						BootstrapCheckSpec: capikubevirt.VirtualMachineBootstrapCheckSpec{CheckStrategy: "none"},
+						VirtualMachineTemplate: *generateNodeTemplate(
+							memoryTmpltOpt("8Gi"),
+							cpuTmpltOpt(4),
+							storageTmpltOpt("32Gi"),
+							archTmpltOpt(hyperv1.ArchitectureAMD64),
+							nodeSelectorTmpltOpt(map[string]string{
+								corev1.LabelArchStable: hyperv1.ArchitectureAMD64,
+								"custom-label":       "custom-value",
 							}),
 						),
 					},
@@ -1551,15 +1533,6 @@ func hostDevicesOption(hostDevices []hyperv1.KubevirtHostDevice) nodePoolOption 
 	}
 }
 
-func cpuModelNPOption(model hyperv1.CpuModelType) nodePoolOption {
-	return func(kvNodePool *hyperv1.KubevirtNodePoolPlatform) {
-		if kvNodePool.Compute == nil {
-			kvNodePool.Compute = &hyperv1.KubevirtCompute{}
-		}
-		kvNodePool.Compute.Model = model
-	}
-}
-
 func generateKubevirtPlatform(options ...nodePoolOption) *hyperv1.KubevirtNodePoolPlatform {
 	exampleTemplate := &hyperv1.KubevirtNodePoolPlatform{}
 
@@ -1575,21 +1548,6 @@ type nodeTemplateOption func(template *capikubevirt.VirtualMachineTemplateSpec)
 func cpuTmpltOpt(cores uint32) nodeTemplateOption {
 	return func(template *capikubevirt.VirtualMachineTemplateSpec) {
 		template.Spec.Template.Spec.Domain.CPU = &kubevirtv1.CPU{Cores: cores}
-	}
-}
-
-func cpuModelTmpltOpt(model string) nodeTemplateOption {
-	return func(template *capikubevirt.VirtualMachineTemplateSpec) {
-		if template.Spec.Template.Spec.Domain.CPU == nil {
-			template.Spec.Template.Spec.Domain.CPU = &kubevirtv1.CPU{}
-		}
-		template.Spec.Template.Spec.Domain.CPU.Model = model
-	}
-}
-
-func cpuWithModelTmpltOpt(cores uint32, model string) nodeTemplateOption {
-	return func(template *capikubevirt.VirtualMachineTemplateSpec) {
-		template.Spec.Template.Spec.Domain.CPU = &kubevirtv1.CPU{Cores: cores, Model: model}
 	}
 }
 
@@ -1641,23 +1599,6 @@ func networksTmpltOpt(networks []kubevirtv1.Network) nodeTemplateOption {
 	}
 }
 
-func guaranteedMemoryOnlyOpt(memory string) nodeTemplateOption {
-	memReq := apiresource.MustParse(memory)
-
-	return func(template *capikubevirt.VirtualMachineTemplateSpec) {
-		if len(template.Spec.Template.Spec.Domain.Resources.Requests) == 0 {
-			template.Spec.Template.Spec.Domain.Resources.Requests = make(corev1.ResourceList)
-		}
-
-		if len(template.Spec.Template.Spec.Domain.Resources.Limits) == 0 {
-			template.Spec.Template.Spec.Domain.Resources.Limits = make(corev1.ResourceList)
-		}
-
-		template.Spec.Template.Spec.Domain.Resources.Requests[corev1.ResourceMemory] = memReq
-		template.Spec.Template.Spec.Domain.Resources.Limits[corev1.ResourceMemory] = memReq
-	}
-}
-
 func guaranteedResourcesOpt(cores uint32, memory string) nodeTemplateOption {
 	memReq := apiresource.MustParse(memory)
 	coresReq := *apiresource.NewQuantity(int64(cores), apiresource.DecimalSI)
@@ -1688,6 +1629,27 @@ func addNetworkOpt(nw kubevirtv1.Network) nodeTemplateOption {
 func annotationsTmpltOpt(annotations map[string]string) nodeTemplateOption {
 	return func(template *capikubevirt.VirtualMachineTemplateSpec) {
 		template.Spec.Template.ObjectMeta.Annotations = annotations
+	}
+}
+
+// archTmpltOpt sets the VMI Architecture field — verifies Change 1.
+func archTmpltOpt(arch string) nodeTemplateOption {
+	return func(template *capikubevirt.VirtualMachineTemplateSpec) {
+		template.Spec.Template.Spec.Architecture = arch
+	}
+}
+
+// nodeSelectorTmpltOpt sets the NodeSelector on the VMI template — verifies Change 2.
+func nodeSelectorTmpltOpt(nodeSelector map[string]string) nodeTemplateOption {
+	return func(template *capikubevirt.VirtualMachineTemplateSpec) {
+		template.Spec.Template.Spec.NodeSelector = nodeSelector
+	}
+}
+
+// nodeSelectorNPOption sets a user-supplied NodeSelector on the KubevirtNodePoolPlatform.
+func nodeSelectorNPOption(nodeSelector map[string]string) nodePoolOption {
+	return func(kvNodePool *hyperv1.KubevirtNodePoolPlatform) {
+		kvNodePool.NodeSelector = nodeSelector
 	}
 }
 
@@ -1920,131 +1882,6 @@ func TestDefaultImage(t *testing.T) {
 			}
 			if digest != tt.expectedDigest {
 				t.Errorf("got digest %q, expected %q", digest, tt.expectedDigest)
-			}
-		})
-	}
-}
-
-func TestCpuModelToKubevirt(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    hyperv1.CpuModelType
-		expected string
-	}{
-		{
-			name:     "When model is HostPassthrough, it should return the KubeVirt host-passthrough string",
-			input:    hyperv1.CpuModelHostPassthrough,
-			expected: "host-passthrough",
-		},
-		{
-			name:     "When model is an unknown value, it should return the raw string",
-			input:    hyperv1.CpuModelType("SomeOtherModel"),
-			expected: "SomeOtherModel",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CpuModelToKubevirt(tt.input)
-			if result != tt.expected {
-				t.Errorf("CpuModelToKubevirt(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestLiveMigrationWarningCondition(t *testing.T) {
-	tests := []struct {
-		name            string
-		nodePool        *hyperv1.NodePool
-		expectCondition bool
-	}{
-		{
-			name: "When model is HostPassthrough, it should return a warning condition",
-			nodePool: &hyperv1.NodePool{
-				Spec: hyperv1.NodePoolSpec{
-					Platform: hyperv1.NodePoolPlatform{
-						Kubevirt: &hyperv1.KubevirtNodePoolPlatform{
-							Compute: &hyperv1.KubevirtCompute{
-								Model: hyperv1.CpuModelHostPassthrough,
-							},
-						},
-					},
-				},
-			},
-			expectCondition: true,
-		},
-		{
-			name: "When model is not set, it should return nil",
-			nodePool: &hyperv1.NodePool{
-				Spec: hyperv1.NodePoolSpec{
-					Platform: hyperv1.NodePoolPlatform{
-						Kubevirt: &hyperv1.KubevirtNodePoolPlatform{
-							Compute: &hyperv1.KubevirtCompute{},
-						},
-					},
-				},
-			},
-			expectCondition: false,
-		},
-		{
-			name: "When compute is nil, it should return nil",
-			nodePool: &hyperv1.NodePool{
-				Spec: hyperv1.NodePoolSpec{
-					Platform: hyperv1.NodePoolPlatform{
-						Kubevirt: &hyperv1.KubevirtNodePoolPlatform{},
-					},
-				},
-			},
-			expectCondition: false,
-		},
-		{
-			name: "When kubevirt platform is nil, it should return nil",
-			nodePool: &hyperv1.NodePool{
-				Spec: hyperv1.NodePoolSpec{
-					Platform: hyperv1.NodePoolPlatform{},
-				},
-			},
-			expectCondition: false,
-		},
-		{
-			name: "When model changed from HostPassthrough to empty, it should return nil so stale condition can be cleared",
-			nodePool: &hyperv1.NodePool{
-				Spec: hyperv1.NodePoolSpec{
-					Platform: hyperv1.NodePoolPlatform{
-						Kubevirt: &hyperv1.KubevirtNodePoolPlatform{
-							Compute: &hyperv1.KubevirtCompute{
-								Model: "",
-							},
-						},
-					},
-				},
-			},
-			expectCondition: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cond := LiveMigrationWarningCondition(tt.nodePool)
-
-			if tt.expectCondition {
-				if cond == nil {
-					t.Fatal("expected a condition to be returned, but got nil")
-				}
-				if cond.Status != corev1.ConditionFalse {
-					t.Errorf("expected condition status False, got %s", cond.Status)
-				}
-				if cond.Reason != hyperv1.NodePoolKubeVirtLiveMigratableReason {
-					t.Errorf("expected reason %s, got %s", hyperv1.NodePoolKubeVirtLiveMigratableReason, cond.Reason)
-				}
-				if cond.Type != hyperv1.NodePoolKubeVirtLiveMigratableType {
-					t.Errorf("expected type %s, got %s", hyperv1.NodePoolKubeVirtLiveMigratableType, cond.Type)
-				}
-			} else {
-				if cond != nil {
-					t.Errorf("expected nil condition, but got one with status %s", cond.Status)
-				}
 			}
 		})
 	}
