@@ -1529,13 +1529,14 @@ type ProvisionerConfig struct {
 // including the target platform and platform-specific settings.
 //
 // +kubebuilder:validation:XValidation:rule="self.platform == 'AWS' ? has(self.aws) : !has(self.aws)",message="aws is required when platform is AWS, and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="self.platform == 'Azure' ? has(self.azure) : !has(self.azure)",message="azure is required when platform is Azure, and forbidden otherwise"
 // +union
 type KarpenterConfig struct {
 	// platform specifies the infrastructure platform that Karpenter should provision nodes on.
 	//
 	// +required
 	// +unionDiscriminator
-	// +kubebuilder:validation:Enum=AWS
+	// +kubebuilder:validation:Enum=AWS;Azure
 	Platform PlatformType `json:"platform,omitempty"`
 
 	// aws specifies the AWS-specific configuration for Karpenter.
@@ -1543,6 +1544,21 @@ type KarpenterConfig struct {
 	// +optional
 	// +unionMember
 	AWS KarpenterAWSConfig `json:"aws,omitzero"`
+
+	// azure specifies the Azure-specific configuration for Karpenter.
+	//
+	// +optional
+	// +unionMember
+	Azure KarpenterAzureConfig `json:"azure,omitzero"`
+}
+
+// KarpenterAzureConfig specifies Azure-specific configuration for the Karpenter provisioner.
+type KarpenterAzureConfig struct {
+	// clientID specifies the client ID of the workload identity that Karpenter uses
+	// to provision and manage virtual machines in the hosted cluster's Azure subscription.
+	//
+	// +required
+	ClientID AzureClientID `json:"clientID"`
 }
 
 // KarpenterAWSConfig specifies AWS-specific configuration for the Karpenter provisioner.
